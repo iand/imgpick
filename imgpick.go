@@ -11,6 +11,7 @@ package imgpick
 import (
 	// "bytes"
 	// "fmt"
+	"fmt"
 	"image"
 	_ "image/jpeg"
 	_ "image/png"
@@ -20,12 +21,13 @@ import (
 	"regexp"
 )
 
-func PickImage(pageUrl string) (image.Image, error) {
-	re, err := regexp.Compile(`<img[^>]+src="([^"]+)"|<img[^>]+src='([^']+)'`)
+type ImageInfo struct {
+	Img  image.Image
+	Area int
+}
 
-	if err != nil {
-		return nil, err
-	}
+func PickImage(pageUrl string) (image.Image, error) {
+	var currentBest ImageInfo
 
 	base, err := url.Parse(pageUrl)
 	if err != nil {
@@ -44,20 +46,31 @@ func PickImage(pageUrl string) (image.Image, error) {
 		return nil, err
 	}
 
-	var bestImage image.Image
-	var bestArea int
+	currentBest = selectBest(findImageUrls(content, base), currentBest)
+	currentBest = selectBest(findYoutubeImages(content, base), currentBest)
 
-	matches := re.FindAllSubmatch(content, -1)
-	for _, match := range matches {
-		srcValue := string(match[1])
-		srcUrlRef, err := url.Parse(srcValue)
-		if err != nil {
-			continue
-		}
+	if currentBest.Img != nil {
+		return currentBest.Img, nil
+	}
+	return image.NewRGBA(image.Rect(0, 0, 50, 50)), nil
+}
 
-		srcUrl := base.ResolveReference(srcUrlRef)
+func resolveUrl(href string, base *url.URL) string {
+	urlRef, err := url.Parse(href)
+	if err != nil {
+		return ""
+	}
 
-		imgResp, err := http.Get(srcUrl.String())
+	srcUrl := base.ResolveReference(urlRef)
+	return srcUrl.String()
+
+}
+
+func selectBest(urls []string, currentBest ImageInfo) ImageInfo {
+
+	for _, url := range urls {
+
+		imgResp, err := http.Get(url)
 		if err != nil {
 			continue
 		}
@@ -78,15 +91,52 @@ func PickImage(pageUrl string) (image.Image, error) {
 			continue
 		}
 
-		if area > bestArea {
-			bestArea = area
-			bestImage = img
+		if area > currentBest.Area {
+			currentBest.Area = area
+			currentBest.Img = img
 		}
 
 	}
 
-	if bestImage != nil {
-		return bestImage, nil
+	return currentBest
+
+}
+
+func findImageUrls(content []byte, base *url.URL) []string {
+	var urls []string
+
+	re, err := regexp.Compile(`<img[^>]+src="([^"]+)"|<img[^>]+src='([^']+)'`)
+	if err != nil {
+		return urls
 	}
-	return image.NewRGBA(image.Rect(0, 0, 50, 50)), nil
+
+	matches := re.FindAllSubmatch(content, -1)
+	for _, match := range matches {
+		srcUrl := resolveUrl(string(match[1]), base)
+		urls = append(urls, srcUrl)
+	}
+
+	return urls
+
+}
+
+func findYoutubeImages(content []byte, base *url.URL) []string {
+	var urls []string
+
+	re, err := regexp.Compile(`http://www.youtube.com/watch\?v=([A-Za-z0-9]+)`)
+	if err != nil {
+		return urls
+	}
+
+	matches := re.FindAllSubmatch(content, -1)
+	for _, match := range matches {
+		key := string(match[1])
+
+		url := fmt.Sprintf("https://img.youtube.com/vi/%s/0.jpg", key)
+
+		urls = append(urls, url)
+	}
+
+	return urls
+
 }
