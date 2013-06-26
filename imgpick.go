@@ -24,35 +24,41 @@ import (
 type ImageInfo struct {
 	Img  image.Image
 	Area int
+	Url  string
 }
 
-func PickImage(pageUrl string) (image.Image, error) {
+// Look for the image that best represents the given page and also
+// a url for any embedded media
+func PickImage(pageUrl string) (image.Image, string, string, error) {
 	var currentBest ImageInfo
 
 	base, err := url.Parse(pageUrl)
 	if err != nil {
-		return nil, err
+		return nil, "", "", err
 	}
 
 	resp, err := http.Get(pageUrl)
 	if err != nil {
-		return nil, err
+		return nil, "", "", err
 	}
 
 	defer resp.Body.Close()
 
 	content, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, "", "", err
 	}
 
+	println("got %d", len(content))
 	currentBest = selectBest(findImageUrls(content, base), currentBest)
 	currentBest = selectBest(findYoutubeImages(content, base), currentBest)
+	mediaUrl := detectMedia(content, base)
 
 	if currentBest.Img != nil {
-		return currentBest.Img, nil
+		return currentBest.Img, currentBest.Url, mediaUrl, nil
 	}
-	return image.NewRGBA(image.Rect(0, 0, 50, 50)), nil
+
+	return image.NewRGBA(image.Rect(0, 0, 50, 50)), "", mediaUrl, nil
 }
 
 func resolveUrl(href string, base *url.URL) string {
@@ -94,6 +100,7 @@ func selectBest(urls []string, currentBest ImageInfo) ImageInfo {
 		if area > currentBest.Area {
 			currentBest.Area = area
 			currentBest.Img = img
+			currentBest.Url = url
 		}
 
 	}
@@ -139,4 +146,23 @@ func findYoutubeImages(content []byte, base *url.URL) []string {
 
 	return urls
 
+}
+
+func detectMedia(content []byte, base *url.URL) string {
+
+	switch {
+	case base.Host == "youtube.com:80" || base.Host == "www.youtube.com:80":
+		re, err := regexp.Compile(`<meta property="og:url" content="([^"]+">`)
+		if err != nil {
+			return ""
+		}
+
+		matches := re.FindAllSubmatch(content, -1)
+		if len(matches) > 0 {
+			return string(matches[0][1])
+		}
+
+	}
+
+	return ""
 }
