@@ -1,8 +1,6 @@
 /*
-  PUBLIC DOMAIN STATEMENT
-  To the extent possible under law, Ian Davis has waived all copyright
-  and related or neighboring rights to this Source Code file.
-  This work is published from the United Kingdom.
+  This is free and unencumbered software released into the public domain. For more
+  information, see <http://unlicense.org/> or the accompanying UNLICENSE file.
 */
 
 // Finds the primary image featured on a webpage
@@ -29,36 +27,73 @@ type ImageInfo struct {
 
 // Look for the image that best represents the given page and also
 // a url for any embedded media
-func PickImage(pageUrl string) (image.Image, string, string, error) {
+func PickImage(pageUrl string) (image.Image, error) {
 	var currentBest ImageInfo
+
+	_, imageUrls, err := FindMedia(pageUrl)
+	if err != nil {
+		return nil, err
+	}
+
+	currentBest = selectBest(imageUrls, currentBest)
+
+	if currentBest.Img != nil {
+		return currentBest.Img, nil
+	}
+
+	return image.NewRGBA(image.Rect(0, 0, 50, 50)), nil
+}
+
+func FindMedia(pageUrl string) (mediaUrl string, imageUrls []string, err error) {
 
 	base, err := url.Parse(pageUrl)
 	if err != nil {
-		return nil, "", "", err
+		return "", imageUrls, err
 	}
 
 	resp, err := http.Get(pageUrl)
 	if err != nil {
-		return nil, "", "", err
+		return "", imageUrls, err
 	}
 
 	defer resp.Body.Close()
 
 	content, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return nil, "", "", err
+		return "", imageUrls, err
 	}
 
-	println("got %d", len(content))
-	currentBest = selectBest(findImageUrls(content, base), currentBest)
-	currentBest = selectBest(findYoutubeImages(content, base), currentBest)
-	mediaUrl := detectMedia(content, base)
+	seen := make(map[string]bool, 0)
+
+	for _, url := range findImageUrls(content, base) {
+		if _, exists := seen[url]; !exists {
+			imageUrls = append(imageUrls, url)
+			seen[url] = true
+		}
+	}
+
+	for _, url := range findYoutubeImages(content, base) {
+		if _, exists := seen[url]; !exists {
+			imageUrls = append(imageUrls, url)
+			seen[url] = true
+		}
+	}
+
+	mediaUrl = detectMedia(content, base)
+
+	return mediaUrl, imageUrls, err
+}
+
+func SelectBestImage(pageUrl string, imageUrls []string) (image.Image, error) {
+	var currentBest ImageInfo
+
+	currentBest = selectBest(imageUrls, currentBest)
 
 	if currentBest.Img != nil {
-		return currentBest.Img, currentBest.Url, mediaUrl, nil
+		return currentBest.Img, nil
 	}
 
-	return image.NewRGBA(image.Rect(0, 0, 50, 50)), "", mediaUrl, nil
+	return image.NewRGBA(image.Rect(0, 0, 50, 50)), nil
 }
 
 func resolveUrl(href string, base *url.URL) string {
@@ -151,8 +186,8 @@ func findYoutubeImages(content []byte, base *url.URL) []string {
 func detectMedia(content []byte, base *url.URL) string {
 
 	switch {
-	case base.Host == "youtube.com:80" || base.Host == "www.youtube.com:80":
-		re, err := regexp.Compile(`<meta property="og:url" content="([^"]+">`)
+	case base.Host == "youtube.com" || base.Host == "www.youtube.com":
+		re, err := regexp.Compile(`<meta property="og:url" content="([^"]+)">`)
 		if err != nil {
 			return ""
 		}
