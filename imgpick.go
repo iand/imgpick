@@ -36,7 +36,7 @@ type ImageData struct {
 func PickImage(pageUrl string) (image.Image, error) {
 	var currentBest ImageData
 
-	_, imageUrls, err := FindMedia(pageUrl)
+	_, _, imageUrls, err := FindMedia(pageUrl)
 	if err != nil {
 		return nil, err
 	}
@@ -50,23 +50,33 @@ func PickImage(pageUrl string) (image.Image, error) {
 	return image.NewRGBA(image.Rect(0, 0, 50, 50)), nil
 }
 
-func FindMedia(pageUrl string) (mediaUrl string, imageUrls []string, err error) {
+func FindMedia(pageUrl string) (mediaUrl string, title string, imageUrls []string, err error) {
 
 	base, err := url.Parse(pageUrl)
 	if err != nil {
-		return "", imageUrls, err
+		return "", "", imageUrls, err
 	}
 
 	resp, err := http.Get(pageUrl)
 	if err != nil {
-		return "", imageUrls, err
+		return "", "", imageUrls, err
 	}
 
 	defer resp.Body.Close()
 
 	content, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return "", imageUrls, err
+		return "", "", imageUrls, err
+	}
+
+	re, err := regexp.Compile(`<title>([^<]+)</title>`)
+	if err != nil {
+		return "", "", imageUrls, err
+	}
+
+	matches := re.FindAllSubmatch(content, -1)
+	if len(matches) > 0 {
+		title = string(matches[0][1])
 	}
 
 	seen := make(map[string]bool, 0)
@@ -87,7 +97,7 @@ func FindMedia(pageUrl string) (mediaUrl string, imageUrls []string, err error) 
 
 	mediaUrl = detectMedia(content, base)
 
-	return mediaUrl, imageUrls, err
+	return mediaUrl, title, imageUrls, err
 }
 
 func SelectBestImage(pageUrl string, imageUrls []string) (ImageData, []ImageInfo, error) {
