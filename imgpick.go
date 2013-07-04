@@ -20,22 +20,28 @@ import (
 )
 
 type ImageInfo struct {
+	Width  int    `json:"width"`
+	Height int    `json:"height"`
+	Url    string `json:"url"`
+}
+
+type ImageData struct {
+	ImageInfo
 	Img  image.Image
 	Area int
-	Url  string
 }
 
 // Look for the image that best represents the given page and also
 // a url for any embedded media
 func PickImage(pageUrl string) (image.Image, error) {
-	var currentBest ImageInfo
+	var currentBest ImageData
 
 	_, imageUrls, err := FindMedia(pageUrl)
 	if err != nil {
 		return nil, err
 	}
 
-	currentBest = selectBest(imageUrls, currentBest)
+	currentBest, _ = selectBest(imageUrls, currentBest)
 
 	if currentBest.Img != nil {
 		return currentBest.Img, nil
@@ -84,16 +90,17 @@ func FindMedia(pageUrl string) (mediaUrl string, imageUrls []string, err error) 
 	return mediaUrl, imageUrls, err
 }
 
-func SelectBestImage(pageUrl string, imageUrls []string) (image.Image, error) {
-	var currentBest ImageInfo
+func SelectBestImage(pageUrl string, imageUrls []string) (ImageData, []ImageInfo, error) {
+	var currentBest ImageData
+	var images []ImageInfo
 
-	currentBest = selectBest(imageUrls, currentBest)
+	currentBest, images = selectBest(imageUrls, currentBest)
 
 	if currentBest.Img != nil {
-		return currentBest.Img, nil
+		return currentBest, images, nil
 	}
 
-	return image.NewRGBA(image.Rect(0, 0, 50, 50)), nil
+	return ImageData{Img: image.NewRGBA(image.Rect(0, 0, 50, 50)), Area: 2500, ImageInfo: ImageInfo{Width: 50, Height: 50}}, images, nil
 }
 
 func resolveUrl(href string, base *url.URL) string {
@@ -107,7 +114,9 @@ func resolveUrl(href string, base *url.URL) string {
 
 }
 
-func selectBest(urls []string, currentBest ImageInfo) ImageInfo {
+func selectBest(urls []string, currentBest ImageData) (ImageData, []ImageInfo) {
+
+	images := make([]ImageInfo, 0)
 
 	for _, url := range urls {
 
@@ -121,6 +130,9 @@ func selectBest(urls []string, currentBest ImageInfo) ImageInfo {
 			continue
 		}
 		r := img.Bounds()
+
+		images = append(images, ImageInfo{Url: url, Width: (r.Max.X - r.Min.X), Height: (r.Max.Y - r.Min.Y)})
+
 		area := (r.Max.X - r.Min.X) * (r.Max.Y - r.Min.Y)
 
 		if area < 5000 {
@@ -140,7 +152,7 @@ func selectBest(urls []string, currentBest ImageInfo) ImageInfo {
 
 	}
 
-	return currentBest
+	return currentBest, images
 
 }
 
