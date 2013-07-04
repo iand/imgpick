@@ -165,12 +165,12 @@ func findImageUrls(content []byte, base *url.URL) []string {
 func findYoutubeImages(content []byte, base *url.URL) []string {
 	var urls []string
 
-	re1, err := regexp.Compile(`//www.youtube.com/watch\?v=([A-Za-z0-9]+)`)
+	re1, err := regexp.Compile(`//www.youtube.com/watch\?v=([A-Za-z0-9-]+)`)
 	if err != nil {
 		return urls
 	}
 
-	re2, err := regexp.Compile(`//www.youtube.com/embed/([A-Za-z0-9]+)`)
+	re2, err := regexp.Compile(`//www.youtube.com/embed/([A-Za-z0-9-]+)`)
 	if err != nil {
 		return urls
 	}
