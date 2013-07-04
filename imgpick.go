@@ -65,14 +65,14 @@ func FindMedia(pageUrl string) (mediaUrl string, imageUrls []string, err error) 
 
 	seen := make(map[string]bool, 0)
 
-	for _, url := range findImageUrls(content, base) {
+	for _, url := range findYoutubeImages(content, base) {
 		if _, exists := seen[url]; !exists {
 			imageUrls = append(imageUrls, url)
 			seen[url] = true
 		}
 	}
 
-	for _, url := range findYoutubeImages(content, base) {
+	for _, url := range findImageUrls(content, base) {
 		if _, exists := seen[url]; !exists {
 			imageUrls = append(imageUrls, url)
 			seen[url] = true
@@ -165,12 +165,26 @@ func findImageUrls(content []byte, base *url.URL) []string {
 func findYoutubeImages(content []byte, base *url.URL) []string {
 	var urls []string
 
-	re, err := regexp.Compile(`http://www.youtube.com/watch\?v=([A-Za-z0-9]+)`)
+	re1, err := regexp.Compile(`//www.youtube.com/watch\?v=([A-Za-z0-9]+)`)
 	if err != nil {
 		return urls
 	}
 
-	matches := re.FindAllSubmatch(content, -1)
+	re2, err := regexp.Compile(`//www.youtube.com/embed/([A-Za-z0-9]+)`)
+	if err != nil {
+		return urls
+	}
+
+	matches := re1.FindAllSubmatch(content, -1)
+	for _, match := range matches {
+		key := string(match[1])
+
+		url := fmt.Sprintf("https://img.youtube.com/vi/%s/0.jpg", key)
+
+		urls = append(urls, url)
+	}
+
+	matches = re2.FindAllSubmatch(content, -1)
 	for _, match := range matches {
 		key := string(match[1])
 
