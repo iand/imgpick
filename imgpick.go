@@ -32,8 +32,8 @@ type ImageData struct {
 }
 
 var titleRegexes = []string{
-	`<meta property="og:url" content="([^"]+)">`,
-	`<meta property="twitter:url" content="([^"]+)">`,
+	`<meta property="og:title" content="([^"]+)">`,
+	`<meta property="twitter:title" content="([^"]+)">`,
 	`<title>([^<]+)</title>`,
 }
 
