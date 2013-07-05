@@ -31,6 +31,12 @@ type ImageData struct {
 	Area int
 }
 
+var titleRegexes = []string{
+	`<meta property="og:url" content="([^"]+)">`,
+	`<meta property="twitter:url" content="([^"]+)">`,
+	`<title>([^<]+)</title>`,
+}
+
 // Look for the image that best represents the given page and also
 // a url for any embedded media
 func PickImage(pageUrl string) (image.Image, error) {
@@ -69,15 +75,7 @@ func FindMedia(pageUrl string) (mediaUrl string, title string, imageUrls []strin
 		return "", "", imageUrls, err
 	}
 
-	re, err := regexp.Compile(`<title>([^<]+)</title>`)
-	if err != nil {
-		return "", "", imageUrls, err
-	}
-
-	matches := re.FindAllSubmatch(content, -1)
-	if len(matches) > 0 {
-		title = string(matches[0][1])
-	}
+	title = firstMatch(content, titleRegexes)
 
 	seen := make(map[string]bool, 0)
 
@@ -236,4 +234,23 @@ func detectMedia(content []byte, base *url.URL) string {
 	}
 
 	return ""
+}
+
+func firstMatch(content []byte, regexes []string) string {
+
+	for _, r := range regexes {
+		re, err := regexp.Compile(r)
+		if err != nil {
+			continue
+		}
+
+		matches := re.FindAllSubmatch(content, -1)
+		if len(matches) > 0 {
+			return string(matches[0][1])
+		}
+
+	}
+
+	return ""
+
 }
