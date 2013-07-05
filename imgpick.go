@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strings"
 )
 
 type ImageInfo struct {
@@ -75,7 +76,7 @@ func FindMedia(pageUrl string) (mediaUrl string, title string, imageUrls []strin
 		return "", "", imageUrls, err
 	}
 
-	title = firstMatch(content, titleRegexes)
+	title = cleanTitle(firstMatch(content, titleRegexes))
 
 	seen := make(map[string]bool, 0)
 
@@ -253,4 +254,25 @@ func firstMatch(content []byte, regexes []string) string {
 
 	return ""
 
+}
+
+func cleanTitle(title string) string {
+	if pos := strings.Index(title, " |"); pos != -1 {
+		title = title[:pos]
+	}
+
+	if pos := strings.Index(title, " —"); pos != -1 {
+		title = title[:pos]
+	}
+
+	if pos := strings.Index(title, " - "); pos != -1 {
+		title = title[:pos]
+	}
+
+	if pos := strings.Index(title, "&nbsp;-&nbsp;"); pos != -1 {
+		title = title[:pos]
+	}
+
+	title = strings.Trim(title, " ")
+	return title
 }
