@@ -7,8 +7,7 @@
 package imgpick
 
 import (
-	// "bytes"
-	// "fmt"
+	"cgl.tideland.biz/applog"
 	"fmt"
 	"image"
 	_ "image/jpeg"
@@ -18,18 +17,27 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"time"
 )
 
 type ImageInfo struct {
-	Width  int    `json:"width"`
-	Height int    `json:"height"`
+	Width  int    `json:"width,omitempty"`
+	Height int    `json:"height,omitempty"`
 	Url    string `json:"url"`
 }
 
 type ImageData struct {
 	ImageInfo
-	Img  image.Image
-	Area int
+	Img image.Image
+}
+
+type DetectionResult struct {
+	Title     string      `json:"title"`
+	Url       string      `json:"url"`
+	Images    []ImageInfo `json:"images,omitempty"`
+	MediaUrl  string      `json:"mediaurl"`
+	MediaType string      `json:"mediatype"`
+	BestImage string      `json:"bestimage"`
 }
 
 var titleRegexes = []string{
@@ -38,78 +46,111 @@ var titleRegexes = []string{
 	`<title>([^<]+)</title>`,
 }
 
-// Look for the image that best represents the given page and also
-// a url for any embedded media
-func PickImage(pageUrl string) (image.Image, error) {
-	var currentBest ImageData
+// Detects the primary subject of the given URL and returns metadata about it
+func DetectMedia(url string, selectBest bool) (*DetectionResult, error) {
+	result, err := ExtractMedia(url)
 
-	_, _, imageUrls, err := FindMedia(pageUrl)
+	//mediaUrl, title, imageUrls, err := FindMedia(url)
+
 	if err != nil {
 		return nil, err
 	}
 
-	currentBest, _ = selectBest(imageUrls, currentBest)
+	if selectBest {
+		fetchImageDimensions(result)
+		selectBestImage(result)
 
-	if currentBest.Img != nil {
-		return currentBest.Img, nil
 	}
+	return result, nil
 
-	return image.NewRGBA(image.Rect(0, 0, 50, 50)), nil
 }
 
-func FindMedia(pageUrl string) (mediaUrl string, title string, imageUrls []string, err error) {
+// // Look for the image that best represents the given page and also
+// // a url for any embedded media
+// func PickImage(pageUrl string) (image.Image, error) {
+// 	var currentBest ImageData
 
+// 	_, _, imageUrls, err := FindMedia(pageUrl)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	currentBest, _ = selectBest(imageUrls, currentBest)
+
+// 	if currentBest.Img != nil {
+// 		return currentBest.Img, nil
+// 	}
+
+// 	return image.NewRGBA(image.Rect(0, 0, 50, 50)), nil
+// }
+
+// Extract the primary subject of the given URL and returns metadata about it
+// without fetching any more URLs
+func ExtractMedia(pageUrl string) (*DetectionResult, error) {
+	result := &DetectionResult{
+		Url: pageUrl,
+	}
 	base, err := url.Parse(pageUrl)
 	if err != nil {
-		return "", "", imageUrls, err
+		return result, err
 	}
 
 	resp, err := http.Get(pageUrl)
 	if err != nil {
-		return "", "", imageUrls, err
+		return result, err
 	}
 
 	defer resp.Body.Close()
 
 	content, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return "", "", imageUrls, err
+		return result, err
 	}
 
-	title = cleanTitle(firstMatch(content, titleRegexes))
+	result.Title = cleanTitle(firstMatch(content, titleRegexes))
+
+	result.MediaUrl, result.MediaType = detectMedia(content, base)
 
 	seen := make(map[string]bool, 0)
-
 	for _, url := range findYoutubeImages(content, base) {
 		if _, exists := seen[url]; !exists {
-			imageUrls = append(imageUrls, url)
+			result.Images = append(result.Images, ImageInfo{Url: url})
 			seen[url] = true
 		}
 	}
 
 	for _, url := range findImageUrls(content, base) {
 		if _, exists := seen[url]; !exists {
-			imageUrls = append(imageUrls, url)
+			result.Images = append(result.Images, ImageInfo{Url: url})
 			seen[url] = true
 		}
 	}
 
-	mediaUrl = detectMedia(content, base)
-
-	return mediaUrl, title, imageUrls, err
+	return result, err
 }
 
-func SelectBestImage(pageUrl string, imageUrls []string) (ImageData, []ImageInfo, error) {
-	var currentBest ImageData
-	var images []ImageInfo
+func selectBestImage(result *DetectionResult) {
+	var currentBest ImageInfo
 
-	currentBest, images = selectBest(imageUrls, currentBest)
+	for _, imginfo := range result.Images {
+		sizeRatio := float64(imginfo.Width) / float64(imginfo.Height)
+		if sizeRatio > 2 || sizeRatio < 0.5 {
+			continue
+		}
 
-	if currentBest.Img != nil {
-		return currentBest, images, nil
+		area := imginfo.Width * imginfo.Height
+		if area < 5000 {
+			continue
+		}
+
+		if area > (currentBest.Width * currentBest.Height) {
+			currentBest = imginfo
+		}
+
 	}
 
-	return ImageData{Img: image.NewRGBA(image.Rect(0, 0, 50, 50)), Area: 2500, ImageInfo: ImageInfo{Width: 50, Height: 50}}, images, nil
+	result.BestImage = currentBest.Url
+
 }
 
 func resolveUrl(href string, base *url.URL) string {
@@ -123,59 +164,88 @@ func resolveUrl(href string, base *url.URL) string {
 
 }
 
-func selectBest(urls []string, currentBest ImageData) (ImageData, []ImageInfo) {
+func fetchImageDimensions(result *DetectionResult) {
 
 	images := make([]ImageInfo, 0)
+	urlchan := make(chan string, len(result.Images))
+	results := make(chan *ImageInfo, 0)
+	quit := make(chan bool, 0)
 
-	for _, url := range urls {
+	go fetchImage(urlchan, results, quit)
+	go fetchImage(urlchan, results, quit)
+	go fetchImage(urlchan, results, quit)
+	go fetchImage(urlchan, results, quit)
 
-		imgResp, err := http.Get(url)
-		if err != nil {
-			continue
-		}
-		defer imgResp.Body.Close()
-		img, _, err := image.Decode(imgResp.Body)
-		if err != nil {
-			continue
-		}
-		r := img.Bounds()
-
-		images = append(images, ImageInfo{Url: url, Width: (r.Max.X - r.Min.X), Height: (r.Max.Y - r.Min.Y)})
-
-		area := (r.Max.X - r.Min.X) * (r.Max.Y - r.Min.Y)
-
-		if area < 5000 {
-			continue
-		}
-
-		sizeRatio := float64(r.Max.X-r.Min.X) / float64(r.Max.Y-r.Min.Y)
-		if sizeRatio > 2 || sizeRatio < 0.5 {
-			continue
-		}
-
-		if area > currentBest.Area {
-			currentBest.Area = area
-			currentBest.Img = img
-			currentBest.Url = url
-		}
-
+	for _, imageinfo := range result.Images {
+		urlchan <- imageinfo.Url
 	}
 
-	return currentBest, images
+	timeout := time.After(time.Duration(500) * time.Millisecond)
+	for i := 0; i < len(result.Images); i++ {
+		select {
+		case result := <-results:
+			if result != nil {
+				images = append(images, *result)
+			}
+		case <-timeout:
+			applog.Debugf("Search timed out")
+			close(quit)
+			result.Images = images
+			return
+		}
+	}
+
+	close(quit)
+	result.Images = images
+	return
 
 }
 
-func findImageUrls(content []byte, base *url.URL) []string {
-	var urls []string
+func fetchImage(urls chan string, results chan *ImageInfo, quit chan bool) {
 
-	re, err := regexp.Compile(`<img[^>]+src="([^"]+)"|<img[^>]+src='([^']+)'`)
-	if err != nil {
-		return urls
+	for {
+		select {
+		case url := <-urls:
+			applog.Debugf("Fetching image %s", url)
+			imgResp, err := http.Get(url)
+			if err != nil {
+				applog.Errorf("Error fetching image from %s: %s", url, err.Error())
+				results <- nil
+				continue
+			}
+			defer imgResp.Body.Close()
+			img, _, err := image.Decode(imgResp.Body)
+			if err != nil {
+				applog.Errorf("Error decoding image from %s: %s", url, err.Error())
+				results <- nil
+				continue
+			}
+			r := img.Bounds()
+
+			results <- &ImageInfo{
+				Url:    url,
+				Width:  (r.Max.X - r.Min.X),
+				Height: (r.Max.Y - r.Min.Y),
+			}
+
+		case <-quit:
+			applog.Debugf("Image fetcher quitting")
+			return
+		}
+	}
+}
+
+func findImageUrls(content []byte, base *url.URL) []string {
+
+	relist := []string{
+		`<img[^>]+src="([^"]+)"`,
+		`<img[^>]+src='([^']+)'`,
 	}
 
-	matches := re.FindAllSubmatch(content, -1)
-	for _, match := range matches {
-		srcUrl := resolveUrl(string(match[1]), base)
+	var urls []string
+
+	for _, match := range allMatches(content, relist) {
+		srcUrl := resolveUrl(match, base)
 		urls = append(urls, srcUrl)
 	}
 
@@ -218,23 +288,23 @@ func findYoutubeImages(content []byte, base *url.URL) []string {
 
 }
 
-func detectMedia(content []byte, base *url.URL) string {
+func detectMedia(content []byte, base *url.URL) (string, string) {
 
 	switch {
 	case base.Host == "youtube.com" || base.Host == "www.youtube.com":
 		re, err := regexp.Compile(`<meta property="og:url" content="([^"]+)">`)
 		if err != nil {
-			return ""
+			return "", ""
 		}
 
 		matches := re.FindAllSubmatch(content, -1)
 		if len(matches) > 0 {
-			return string(matches[0][1])
+			return string(matches[0][1]), "video"
 		}
 
 	}
 
-	return ""
+	return "", ""
 }
 
 func firstMatch(content []byte, regexes []string) string {
@@ -253,6 +323,26 @@ func firstMatch(content []byte, regexes []string) string {
 	}
 
 	return ""
+
+}
+
+func allMatches(content []byte, regexes []string) []string {
+	results := make([]string, 0)
+
+	for _, r := range regexes {
+		re, err := regexp.Compile(r)
+		if err != nil {
+			continue
+		}
+
+		matches := re.FindAllSubmatch(content, -1)
+		for _, match := range matches {
+			results = append(results, string(match[1]))
+		}
+
+	}
+
+	return results
 
 }
 
