@@ -7,8 +7,10 @@
 package imgpick
 
 import (
+	"bytes"
 	"cgl.tideland.biz/applog"
 	"fmt"
+	"github.com/iand/microdata"
 	"image"
 	_ "image/jpeg"
 	_ "image/png"
@@ -16,14 +18,15 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
 
 type ImageInfo struct {
+	Url    string `json:"url"`
 	Width  int    `json:"width,omitempty"`
 	Height int    `json:"height,omitempty"`
-	Url    string `json:"url"`
 }
 
 type ImageData struct {
@@ -32,12 +35,14 @@ type ImageData struct {
 }
 
 type DetectionResult struct {
-	Title     string      `json:"title"`
-	Url       string      `json:"url"`
-	Images    []ImageInfo `json:"images,omitempty"`
-	MediaUrl  string      `json:"mediaurl"`
-	MediaType string      `json:"mediatype"`
-	BestImage string      `json:"bestimage"`
+	Title     string               `json:"title"`
+	Url       string               `json:"url"`
+	Images    []ImageInfo          `json:"images,omitempty"`
+	MediaUrl  string               `json:"mediaurl"`
+	MediaType string               `json:"mediatype"`
+	Duration  int                  `json:"duration"`
+	BestImage string               `json:"bestimage"`
+	Microdata *microdata.Microdata `json:"microdata,omitempty"`
 }
 
 var titleRegexes = []string{
@@ -65,25 +70,6 @@ func DetectMedia(url string, selectBest bool) (*DetectionResult, error) {
 
 }
 
-// // Look for the image that best represents the given page and also
-// // a url for any embedded media
-// func PickImage(pageUrl string) (image.Image, error) {
-// 	var currentBest ImageData
-
-// 	_, _, imageUrls, err := FindMedia(pageUrl)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	currentBest, _ = selectBest(imageUrls, currentBest)
-
-// 	if currentBest.Img != nil {
-// 		return currentBest.Img, nil
-// 	}
-
-// 	return image.NewRGBA(image.Rect(0, 0, 50, 50)), nil
-// }
-
 // Extract the primary subject of the given URL and returns metadata about it
 // without fetching any more URLs
 func ExtractMedia(pageUrl string) (*DetectionResult, error) {
@@ -107,9 +93,15 @@ func ExtractMedia(pageUrl string) (*DetectionResult, error) {
 		return result, err
 	}
 
-	result.Title = cleanTitle(firstMatch(content, titleRegexes))
+	readMicrodata(content, base, result)
 
-	result.MediaUrl, result.MediaType = detectMedia(content, base)
+	if result.Title == "" {
+		result.Title = cleanTitle(firstMatch(content, titleRegexes))
+	}
+
+	if result.MediaUrl == "" {
+		result.MediaUrl, result.MediaType = detectMedia(content, base)
+	}
 
 	seen := make(map[string]bool, 0)
 	for _, url := range findYoutubeImages(content, base) {
@@ -365,4 +357,87 @@ func cleanTitle(title string) string {
 
 	title = strings.Trim(title, " ")
 	return title
+}
+
+func readMicrodata(content []byte, base *url.URL, result *DetectionResult) {
+	mdParser := microdata.NewParser(bytes.NewReader(content), base)
+
+	md, _ := mdParser.Parse()
+	// result.Microdata = md
+	if len(md.Items) < 1 {
+		return
+	}
+
+	for _, item := range md.Items {
+		for _, t := range item.Types {
+			switch t {
+			case "http://schema.org/VideoObject":
+				result.MediaType = "video"
+				readMicrodataItem(item, result)
+				return
+			}
+		}
+	}
+
+}
+
+func readMicrodataItem(item *microdata.Item, result *DetectionResult) {
+
+	result.Title = getMicrodataString(item, "name")
+	result.MediaUrl = getMicrodataString(item, "url")
+	result.Duration = parseIsoDuration(getMicrodataString(item, "duration"))
+
+}
+
+func getMicrodataString(item *microdata.Item, name string) string {
+	if values, exists := item.Properties[name]; exists {
+		for _, val := range values {
+			switch typedValue := val.(type) {
+			case string:
+				return typedValue
+			}
+		}
+	}
+
+	return ""
+
+}
+
+func parseIsoDuration(duration string) int {
+	println("DURATION: ", duration)
+	val := 0
+
+	if len(duration) < 3 {
+		return 0
+	}
+
+	re, err := regexp.Compile(`([0-9]+)([A-Z])`)
+	if err != nil {
+		return val
+	}
+
+	matches := re.FindAllSubmatch([]byte(duration[2:]), -1)
+	for _, match := range matches {
+		valueStr := string(match[1])
+		unit := string(match[2])
+		println("FOUND: ", valueStr, unit)
+
+		value, err := strconv.ParseInt(valueStr, 10, 0)
+		if err != nil {
+			return val
+		}
+
+		switch unit {
+		case "S":
+			val += int(value)
+		case "M":
+			val += int(value) * 60
+		case "H":
+			val += int(value) * 3600
+		}
+
+	}
+
+	return val
+
 }
