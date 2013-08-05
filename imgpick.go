@@ -363,7 +363,7 @@ func readMicrodata(content []byte, base *url.URL, result *DetectionResult) {
 	mdParser := microdata.NewParser(bytes.NewReader(content), base)
 
 	md, _ := mdParser.Parse()
-	// result.Microdata = md
+	result.Microdata = md
 	if len(md.Items) < 1 {
 		return
 	}
@@ -372,6 +372,10 @@ func readMicrodata(content []byte, base *url.URL, result *DetectionResult) {
 		for _, t := range item.Types {
 			switch t {
 			case "http://schema.org/VideoObject":
+				result.MediaType = "video"
+				readMicrodataItem(item, result)
+				return
+			case "http://schema.org/Event":
 				result.MediaType = "video"
 				readMicrodataItem(item, result)
 				return
@@ -439,5 +443,48 @@ func parseIsoDuration(duration string) int {
 	}
 
 	return val
+
+}
+
+func guessDateFormat(d string) string {
+	regexes := map[string]string{
+		`^\d{8}$`:                                    "yyyyMMdd",
+		`^\d{1,2}-\d{1,2}-\d{4}$`:                    "dd-MM-yyyy",
+		`^\d{4}-\d{1,2}-\d{1,2}$`:                    "yyyy-MM-dd",
+		`^\d{1,2}/\d{1,2}/\d{4}$`:                    "MM/dd/yyyy",
+		`^\d{4}/\d{1,2}/\d{1,2}$`:                    "yyyy/MM/dd",
+		`^\d{1,2}\s[a-z]{3}\s\d{4}$`:                 "dd MMM yyyy",
+		`^\d{1,2}\s[a-z]{4,}\s\d{4}$`:                "dd MMMM yyyy",
+		`^\d{12}$`:                                   "yyyyMMddHHmm",
+		`^\d{8}\s\d{4}$`:                             "yyyyMMdd HHmm",
+		`^\d{1,2}-\d{1,2}-\d{4}\s\d{1,2}:\d{2}$`:     "dd-MM-yyyy HH:mm",
+		`^\d{4}-\d{1,2}-\d{1,2}\s\d{1,2}:\d{2}$`:     "yyyy-MM-dd HH:mm",
+		`^\d{1,2}/\d{1,2}/\d{4}\s\d{1,2}:\d{2}$`:     "MM/dd/yyyy HH:mm",
+		`^\d{4}/\d{1,2}/\d{1,2}\s\d{1,2}:\d{2}$`:     "yyyy/MM/dd HH:mm",
+		`^\d{1,2}\s[a-z]{3}\s\d{4}\s\d{1,2}:\d{2}$`:  "dd MMM yyyy HH:mm",
+		`^\d{1,2}\s[a-z]{4,}\s\d{4}\s\d{1,2}:\d{2}$`: "dd MMMM yyyy HH:mm",
+		`^\d{14}$`:                                         "yyyyMMddHHmmss",
+		`^\d{8}\s\d{6}$`:                                   "yyyyMMdd HHmmss",
+		`^\d{1,2}-\d{1,2}-\d{4}\s\d{1,2}:\d{2}:\d{2}$`:     "dd-MM-yyyy HH:mm:ss",
+		`^\d{4}-\d{1,2}-\d{1,2}\s\d{1,2}:\d{2}:\d{2}$`:     "yyyy-MM-dd HH:mm:ss",
+		`^\d{1,2}/\d{1,2}/\d{4}\s\d{1,2}:\d{2}:\d{2}$`:     "MM/dd/yyyy HH:mm:ss",
+		`^\d{4}/\d{1,2}/\d{1,2}\s\d{1,2}:\d{2}:\d{2}$`:     "yyyy/MM/dd HH:mm:ss",
+		`^\d{1,2}\s[a-z]{3}\s\d{4}\s\d{1,2}:\d{2}:\d{2}$`:  "dd MMM yyyy HH:mm:ss",
+		`^\d{1,2}\s[a-z]{4,}\s\d{4}\s\d{1,2}:\d{2}:\d{2}$`: "dd MMMM yyyy HH:mm:ss",
+	}
+
+	for r, format := range regexes {
+		re, err := regexp.Compile(r)
+		if err != nil {
+			continue
+		}
+
+		if re.FindString(d) != "" {
+			return format
+		}
+
+	}
+
+	return ""
 
 }
