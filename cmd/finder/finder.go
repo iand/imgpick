@@ -19,17 +19,17 @@ func main() {
 	}
 	url := os.Args[1]
 
-	mediaUrl, imageUrls, err := imgpick.FindMedia(url)
+	res, err := imgpick.DetectMedia(url, true)
 
 	if err != nil {
 		fmt.Printf("Error reading from url: %s\n", err.Error())
 		os.Exit(1)
 	}
 
-	fmt.Printf("Media url: %s\n", mediaUrl)
+	fmt.Printf("Best image: %s\n", res.BestImage)
 	fmt.Printf("Image urls\n")
-	for _, i := range imageUrls {
-		fmt.Printf("* %s\n", i)
+	for _, img := range res.Images {
+		fmt.Printf("* %s\n", img.Url)
 	}
 
 }

@@ -8,9 +8,7 @@ package imgpick
 
 import (
 	"bytes"
-	"cgl.tideland.biz/applog"
 	"fmt"
-	"github.com/iand/microdata"
 	"image"
 	_ "image/jpeg"
 	_ "image/png"
@@ -21,17 +19,14 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/iand/microdata"
 )
 
 type ImageInfo struct {
 	Url    string `json:"url"`
 	Width  int    `json:"width,omitempty"`
 	Height int    `json:"height,omitempty"`
-}
-
-type ImageData struct {
-	ImageInfo
-	Img image.Image
 }
 
 type DetectionResult struct {
@@ -54,8 +49,6 @@ var titleRegexes = []string{
 // Detects the primary subject of the given URL and returns metadata about it
 func DetectMedia(url string, selectBest bool) (*DetectionResult, error) {
 	result, err := ExtractMedia(url)
-
-	//mediaUrl, title, imageUrls, err := FindMedia(url)
 
 	if err != nil {
 		return nil, err
@@ -180,7 +173,6 @@ func fetchImageDimensions(result *DetectionResult) {
 				images = append(images, *result)
 			}
 		case <-timeout:
-			applog.Debugf("Search timed out")
 			close(quit)
 			result.Images = images
 			return
@@ -198,17 +190,14 @@ func fetchImage(urls chan string, results chan *ImageInfo, quit chan bool) {
 	for {
 		select {
 		case url := <-urls:
-			applog.Debugf("Fetching image %s", url)
 			imgResp, err := http.Get(url)
 			if err != nil {
-				applog.Errorf("Error fetching image from %s: %s", url, err.Error())
 				results <- nil
 				continue
 			}
 			defer imgResp.Body.Close()
 			img, _, err := image.Decode(imgResp.Body)
 			if err != nil {
-				applog.Errorf("Error decoding image from %s: %s", url, err.Error())
 				results <- nil
 				continue
 			}
@@ -221,7 +210,6 @@ func fetchImage(urls chan string, results chan *ImageInfo, quit chan bool) {
 			}
 
 		case <-quit:
-			applog.Debugf("Image fetcher quitting")
 			return
 		}
 	}
@@ -408,7 +396,6 @@ func getMicrodataString(item *microdata.Item, name string) string {
 }
 
 func parseIsoDuration(duration string) int {
-	println("DURATION: ", duration)
 	val := 0
 
 	if len(duration) < 3 {
@@ -424,7 +411,6 @@ func parseIsoDuration(duration string) int {
 	for _, match := range matches {
 		valueStr := string(match[1])
 		unit := string(match[2])
-		println("FOUND: ", valueStr, unit)
 
 		value, err := strconv.ParseInt(valueStr, 10, 0)
 		if err != nil {
@@ -463,8 +449,8 @@ func guessDateFormat(d string) string {
 		`^\d{4}/\d{1,2}/\d{1,2}\s\d{1,2}:\d{2}$`:     "yyyy/MM/dd HH:mm",
 		`^\d{1,2}\s[a-z]{3}\s\d{4}\s\d{1,2}:\d{2}$`:  "dd MMM yyyy HH:mm",
 		`^\d{1,2}\s[a-z]{4,}\s\d{4}\s\d{1,2}:\d{2}$`: "dd MMMM yyyy HH:mm",
-		`^\d{14}$`:                                         "yyyyMMddHHmmss",
-		`^\d{8}\s\d{6}$`:                                   "yyyyMMdd HHmmss",
+		`^\d{14}$`:       "yyyyMMddHHmmss",
+		`^\d{8}\s\d{6}$`: "yyyyMMdd HHmmss",
 		`^\d{1,2}-\d{1,2}-\d{4}\s\d{1,2}:\d{2}:\d{2}$`:     "dd-MM-yyyy HH:mm:ss",
 		`^\d{4}-\d{1,2}-\d{1,2}\s\d{1,2}:\d{2}:\d{2}$`:     "yyyy-MM-dd HH:mm:ss",
 		`^\d{1,2}/\d{1,2}/\d{4}\s\d{1,2}:\d{2}:\d{2}$`:     "MM/dd/yyyy HH:mm:ss",

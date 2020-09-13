@@ -20,10 +20,10 @@ Simply run
 
 Documentation is at [http://go.pkgdoc.org/github.com/iand/imgpick](http://go.pkgdoc.org/github.com/iand/imgpick)
 
-LICENSE
-=======
-This code and associated documentation is in the public domain.
+## License
 
-To the extent possible under law, Ian Davis has waived all copyright
-and related or neighboring rights to this file. This work is published 
-from the United Kingdom. 
+This is free and unencumbered software released into the public domain. Anyone is free to 
+copy, modify, publish, use, compile, sell, or distribute this software, either in source 
+code form or as a compiled binary, for any purpose, commercial or non-commercial, and by 
+any means. For more information, see <http://unlicense.org/> or the 
+accompanying [`UNLICENSE`](UNLICENSE) file.
